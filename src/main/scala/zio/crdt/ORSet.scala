@@ -1,8 +1,8 @@
 package zio.crdt
 
-import zio.{Ref, UIO}
+import zio.{Ref, UIO, ZManaged}
 
-trait ORSet[T] {
+trait ORSet[T] extends DSet[T] {
   def add(elem: T, tag: ORSet.TagType): UIO[Unit]
 
   def remove(elem: T, tag: ORSet.TagType): UIO[Unit]
@@ -24,6 +24,7 @@ object ORSet {
   def make[T]: UIO[ORSet[T]] =
     for {
       state <- Ref.make(State[T](Map.empty, Map.empty))
+      eventObservable <- EventObservable.make[DeltaOp[T]]
     } yield new ORSet[T] {
       override def add(elem: T, tag: TagType): UIO[Unit] =
         state.update(s =>
@@ -31,7 +32,7 @@ object ORSet {
             val newAddSet = s.addSet + (elem -> (s.addSet.getOrElse(elem, Set.empty) + tag))
             s.copy(addSet = newAddSet)
           }
-        ).as(())
+        ) *> eventObservable.addEvent(DeltaOp.Added(elem))
 
       override def remove(elem: T, tag: TagType): UIO[Unit] =
         state.update { s =>
@@ -42,7 +43,7 @@ object ORSet {
           }
           val newRemoveSet = if (s.removeSet.get(elem).exists(_.contains(tag))) s.removeSet else s.removeSet + (elem -> Map(tag -> None))
           s.copy(addSet = newAddSet, removeSet = newRemoveSet)
-        }.as(())
+        } *> eventObservable.addEvent(DeltaOp.Removed(elem))
 
       override def getState: UIO[Set[T]] = state.get.map(_.addSet.keySet)
 
@@ -65,6 +66,11 @@ object ORSet {
           ).filter(_._2.nonEmpty).toMap
           s.copy(removeSet = newRemoveSet)
         }.as(())
+
+      override protected def addListener(): ZManaged[Any, Nothing, Listener[DeltaOp[T]]] =
+        Listener.makeBounded[DeltaOp[T]](1024).toManaged_.flatMap(l => eventObservable.addListener(l).as(l))
+
+      override protected def updateState(event: DeltaOp[T]): UIO[Unit] = throw new NotImplementedError("Shouldn't be called on ORSet")
     }
 
   private case class State[T](addSet: Map[T, Set[TagType]], removeSet: Map[T, Map[TagType, Option[VersionType]]])

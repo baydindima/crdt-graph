@@ -51,11 +51,16 @@ scalacOptions ++= Seq(
 
 lazy val versions = new {
   val zio = "1.0.0-RC17"
+  val cats = "2.1.0"
+  val zioCatsInterop = "2.0.0.0-RC10"
 }
 
 
 libraryDependencies ++= Seq(
   "dev.zio" %% "zio" % versions.zio,
+  "dev.zio" %% "zio-interop-cats" % versions.zioCatsInterop,
+
+  "org.typelevel" %% "cats-core" % versions.cats,
 
   "dev.zio" %% "zio-test"     % versions.zio % "test",
   "dev.zio" %% "zio-test-sbt" % versions.zio % "test"
